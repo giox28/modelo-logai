@@ -216,13 +216,7 @@ async def download_file(filename: str):
     else:
         raise HTTPException(status_code=404, detail="Archivo no encontrado")
 
-# Health check & Frontend
-from fastapi.staticfiles import StaticFiles
-
-# Montar carpeta static si tienes assets (opcional, pero sirve para futuro)
-app.mount("/static", StaticFiles(directory="static"), name="static")
-
+# Health check
 @app.get("/")
 def read_root():
-    # Retornar el frontend directamente
-    return FileResponse("static/index.html")
+    return {"status": "ok", "service": "LogAI-Opt API", "version": "1.0", "docs": "/docs"}
