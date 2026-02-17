@@ -1,0 +1,24 @@
+version: '3.8'
+
+services:
+  logai-opt:
+    build: .
+    container_name: logai-backend
+    ports:
+      - "8001:8000"
+    volumes:
+      # Persistencia de modelos entrenados (host:container)
+      - ./models:/app/models
+      # Opcional: Persistir outputs para debug
+      - ./output:/app/output
+      # Mount training data to use host files instead of image files
+      - ./data_train:/app/data_train
+    environment:
+      - LOG_LEVEL=info
+    restart: unless-stopped
+    networks:
+      - logai-net
+
+networks:
+  logai-net:
+    driver: bridge

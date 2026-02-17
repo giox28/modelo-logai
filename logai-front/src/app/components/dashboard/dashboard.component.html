@@ -1,0 +1,7 @@
+<div class="container">
+    <app-upload (processingComplete)="onProcessingComplete($event)"></app-upload>
+
+    <div id="results-section" *ngIf="resultData">
+        <app-results [data]="resultData"></app-results>
+    </div>
+</div>

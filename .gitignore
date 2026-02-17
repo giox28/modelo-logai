@@ -1,0 +1,37 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environments
+venv/
+.env
+
+# IDE
+.vscode/
+.idea/
+
+# Data (too large for git)
+data_input/
+data_train/
+output/
+models/
+
+# Docker
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Node (Angular frontend)
+logai-front/node_modules/
+logai-front/dist/
+logai-front/.angular/
+
+# Tools (portable node, etc.)
+tools/

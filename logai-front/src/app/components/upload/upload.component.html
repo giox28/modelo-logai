@@ -1,0 +1,66 @@
+<div class="card">
+    <h1>LogAI-Opt</h1>
+    <h2>Generación de Registros Sintéticos & Optimización</h2>
+
+    <form (ngSubmit)="onSubmit()">
+        <div class="form-group">
+            <label>1. Seleccionar Cuenca</label>
+            <select [(ngModel)]="selectedBasin" name="basin" (change)="onBasinChange()">
+                <option value="guajira">Cuenca Guajira</option>
+                <option value="llanos">Cuenca Llanos</option>
+                <option value="cauca_patia">Cuenca Cauca-Patía</option>
+            </select>
+        </div>
+
+        <div class="form-group">
+            <label>2. Cargar Archivo LAS</label>
+            <div class="file-drop-area" [class.dragover]="isDragOver" (dragover)="onDragOver($event)"
+                (dragleave)="onDragLeave($event)" (drop)="onDrop($event)" (click)="fileInput.click()">
+                <span class="file-msg">Arrastra tu archivo aquí o haz clic para buscar</span>
+                <input #fileInput type="file" class="file-input" accept=".las" (change)="onFileSelected($event)"
+                    style="display:none">
+            </div>
+            <div *ngIf="fileName" style="margin-top:0.5rem; font-size:0.9rem; color:var(--secondary);">
+                Archivo Seleccionado: {{ fileName }}
+            </div>
+
+            <!-- Input Curves Selection -->
+            <div *ngIf="curvesInFile.length > 0" style="margin-top:1rem;">
+                <label style="font-size:0.9rem; color:var(--text-muted); display:block; margin-bottom:0.5rem;">
+                    Selecciona logs para visualizar:
+                </label>
+                <div class="checkbox-group">
+                    <label *ngFor="let curve of inputCurvesList" class="checkbox-container">
+                        <input type="checkbox" [checked]="inputCurveSelection[curve]"
+                            (change)="inputCurveSelection[curve] = !inputCurveSelection[curve]; updateInputPlot()">
+                        {{ curve }}
+                    </label>
+                </div>
+            </div>
+
+            <!-- Input Plot Container -->
+            <div id="inputPlot" style="width:100%; margin-top:1rem;"></div>
+        </div>
+
+        <div class="form-group">
+            <label>3. Curvas Objetivo a Reconstruir</label>
+            <div class="checkbox-group" id="targetContainer">
+                <p *ngIf="availableModels.length === 0" style="color:var(--text-muted); font-size:0.9rem;">
+                    Selecciona un archivo y cuenca primero...
+                </p>
+
+                <label *ngFor="let model of availableModels" class="checkbox-container"
+                    [style.opacity]="isCurveInFile(model) ? 0.7 : 1">
+                    <input type="checkbox" [(ngModel)]="targetSelection[model]" [name]="'target-'+model">
+                    {{ model }} <span *ngIf="isCurveInFile(model)" style="font-size:0.8em">(Existe)</span>
+                </label>
+            </div>
+        </div>
+
+        <button type="submit" class="btn-primary" [disabled]="!file || isLoading">
+            <span *ngIf="isLoading" class="loader" style="display:inline-block"></span>
+            <span *ngIf="!isLoading">Procesar Registro</span>
+            <span *ngIf="isLoading">Procesando...</span>
+        </button>
+    </form>
+</div>

@@ -1,0 +1,48 @@
+.file-drop-area {
+    border: 2px dashed var(--glass-border);
+    border-radius: 15px;
+    padding: 2rem;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.3s;
+    background: rgba(15, 23, 42, 0.3);
+}
+
+.file-drop-area:hover,
+.file-drop-area.dragover {
+    border-color: var(--secondary);
+    background: rgba(236, 72, 153, 0.1);
+}
+
+.file-msg {
+    color: var(--text-muted);
+    font-size: 0.9rem;
+    pointer-events: none;
+}
+
+.checkbox-group {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+}
+
+.checkbox-container {
+    display: flex;
+    align-items: center;
+    background: rgba(15, 23, 42, 0.6);
+    padding: 0.5rem 1rem;
+    border-radius: 8px;
+    border: 1px solid var(--glass-border);
+    cursor: pointer;
+    transition: 0.2s;
+    color: var(--text-main);
+}
+
+.checkbox-container:hover {
+    border-color: var(--primary);
+}
+
+.checkbox-container input {
+    margin-right: 0.5rem;
+    accent-color: var(--primary);
+}

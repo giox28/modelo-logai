@@ -1,0 +1,52 @@
+<div class="card results-section active">
+    <h3>Procesamiento Completado</h3>
+
+    <p style="color:var(--text-muted); margin-bottom:1.5rem;">
+        El modelo de IA ha reconstruido exitosamente las curvas faltantes.
+    </p>
+
+    <!-- VOI Container -->
+    <div id="voiContainer">
+        <div *ngFor="let item of voiReportItems" class="voi-section">
+            <div style="margin-bottom:1rem;">
+                <h4 style="color:var(--text-main); margin:0; font-size:1.1rem;">
+                    Análisis de Reconstrucción: {{ item.target }}
+                </h4>
+
+                <div class="suggestion-box" *ngIf="!item.info.error">
+                    <strong style="color:var(--secondary)">💡 Recomendación de Adquisición:</strong><br>
+                    <p style="color:var(--text-main); font-size:0.95rem; margin-top:0.5rem; white-space: pre-line;">
+                        {{ item.info.suggestion }}
+                    </p>
+                </div>
+
+                <div class="error-box" *ngIf="item.info.error"
+                    style="background:rgba(239, 68, 68, 0.1); border:1px solid #ef4444; padding:1rem; border-radius:8px;">
+                    <strong style="color:#ef4444">⚠️ Modelo No Disponible:</strong><br>
+                    <p style="color:#fca5a5; font-size:0.9rem; margin-top:0.25rem;">
+                        {{ item.info.error }}
+                    </p>
+                </div>
+            </div>
+
+            <h5 style="color:var(--text-muted); margin:1rem 0 0.5rem 0;">Impacto de Variables (VOI)</h5>
+
+            <div *ngFor="let feat of getFeatureList(item.info)" class="voi-bar-container">
+                <div class="voi-label">
+                    <span>{{ feat.feat }}</span>
+                    <span>{{ feat.percent }}%</span>
+                </div>
+                <div class="progress-bg">
+                    <div class="progress-fill" [style.width.%]="feat.percent"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Result Plot -->
+    <div id="resultPlot" style="width:100%; margin-top:2rem;"></div>
+
+    <a [href]="data.download_url" class="download-btn" *ngIf="data && data.download_url">
+        Descargar {{ data.processed_file }}
+    </a>
+</div>
