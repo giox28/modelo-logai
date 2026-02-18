@@ -1,6 +1,6 @@
 import os
 import shutil
-from model_factory import LogAITrainer
+from model_factory import GeoOptimaTrainer
 import logging
 
 logging.basicConfig(level=logging.INFO)
@@ -21,7 +21,7 @@ def train_real():
     
     # 2. Entrenar
     print("Iniciando entrenamiento con datos reales...")
-    trainer = LogAITrainer(models_dir="models")
+    trainer = GeoOptimaTrainer(models_dir="models")
     # Entrenamos para todas las cuencas en data_train (incluyendo guajira)
     trainer.train_all_basins(data_train_path="data_train") 
     print("Entrenamiento finalizado.")

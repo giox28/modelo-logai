@@ -10,5 +10,5 @@ import { DashboardComponent } from './components/dashboard/dashboard.component';
   styleUrl: './app.component.css'
 })
 export class AppComponent {
-  title = 'logai-front';
+  title = 'GeoOptima';
 }

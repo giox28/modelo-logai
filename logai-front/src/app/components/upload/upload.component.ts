@@ -22,6 +22,17 @@ export class UploadComponent implements OnInit {
   curvesInFile: string[] = [];
   availableModels: string[] = [];
 
+  // New Energies & Frontier Expansion
+  projectType: string = 'oil';
+  analogModel: string = '';
+
+  projectTypes = [
+    { value: 'oil', label: 'Oil & Gas (Tradicional)' },
+    { value: 'geothermal', label: 'Energía Geotérmica' },
+    { value: 'hydrogen', label: 'Almacenamiento H2' },
+    { value: 'ccus', label: 'Captura de Carbono (CCUS)' }
+  ];
+
   // Object to track checkbox state: { 'DT': true, 'RHOB': false }
   targetSelection: { [key: string]: boolean } = {};
 
@@ -123,8 +134,15 @@ export class UploadComponent implements OnInit {
     }
   }
 
+  onAnalogModelChange() {
+    if (this.file) {
+      this.fetchModels();
+    }
+  }
+
   fetchModels() {
-    this.apiService.getAvailableModels(this.selectedBasin).subscribe({
+    const basinToQuery = this.analogModel ? this.analogModel : this.selectedBasin;
+    this.apiService.getAvailableModels(basinToQuery).subscribe({
       next: (data) => {
         console.log('Models fetched:', data); // Debug
         this.availableModels = data.models || [];
@@ -236,6 +254,12 @@ export class UploadComponent implements OnInit {
 
     const targets = this.selectedTargetsList.join(',');
     formData.append('target_curves', targets);
+
+    // New Params
+    formData.append('project_type', this.projectType);
+    if (this.analogModel) {
+      formData.append('analog_model', this.analogModel);
+    }
 
     this.apiService.processWell(formData).subscribe({
       next: (data) => {

@@ -1,109 +1,18 @@
-# LogAI-Opt — Motor de Analítica Predictiva para Registros Geofísicos
+# GeoOptima — Motor de Analítica Predictiva para Registros Geofísicos
 
-Backend de IA para la reconstrucción de curvas geofísicas faltantes en archivos `.las` y optimización de adquisición de registros (Value of Information — VOI).
+Backend de IA para la reconstrucción de curvas geofísicas faltantes en archivos `.las` y optimización de adquisición de registros (Value of Information — VOI). Implementa el estándar de **"Predictiva Acotada"** mediante doble verificación (Importancia + Tolerancia Física).
 
 ---
 
-## Cómo Levantar la Aplicación (Paso a Paso)
+## Características Clave
 
-### Prerrequisitos
-
-- **Docker Desktop** instalado y corriendo
-- **Node.js 18+** (solo si se quiere usar el frontend Angular)
-- Archivos LAS de entrenamiento en `data_train/{nombre_cuenca}/`
-
-### Paso 1: Clonar el Repositorio
-
-```bash
-git clone https://github.com/giox28/modelo-logai.git
-cd modelo-logai
-```
-
-### Paso 2: Preparar los Datos de Entrenamiento
-
-Crear la carpeta `data_train/` con subcarpetas por cuenca. Cada subcarpeta debe contener archivos `.las`:
-
-```
-data_train/
-├── cauca_patia/
-│   ├── ANH CAUCA 10 STS.las
-│   ├── ANH CAUCA 5 STS.las
-│   └── ...
-├── llanos/          (opcional, si se tienen datos)
-└── vmm/             (opcional)
-```
-
-### Paso 3: Construir y Levantar el Backend (Docker)
-
-```bash
-docker-compose up --build -d
-```
-
-Esto:
-- Construye la imagen Docker con Python 3.10, XGBoost, FastAPI
-- Levanta el contenedor `logai-backend` en el **puerto 8001**
-- Monta automáticamente: `models/`, `output/`, `data_train/`
-
-**Verificar que está corriendo:**
-```bash
-docker logs logai-backend --tail 5
-# Debe mostrar: "Uvicorn running on http://0.0.0.0:8000"
-```
-
-### Paso 4: Entrenar los Modelos
-
-La primera vez (o cuando se actualicen datos de entrenamiento):
-
-```bash
-docker exec logai-backend python train_real.py
-```
-
-Este proceso:
-1. Lee todos los LAS de `data_train/`
-2. Aplica el pipeline QC (estandarización, conversión de unidades, detección de casing, filtro de pozos llave)
-3. Entrena un modelo XGBoost por cada curva estándar
-4. Guarda modelos en `models/{cuenca}/` y métricas en `metrics.json`
-5. Tarda ~3-5 minutos por cuenca
-
-**Verificar métricas:**
-```
-GET http://localhost:8001/model-metrics/cauca_patia
-```
-
-### Paso 5: Usar la API
-
-La API está disponible en: **http://localhost:8001**
-
-Documentación interactiva (Swagger): **http://localhost:8001/docs**
-
-#### Endpoints Disponibles
-
-| Método | Ruta | Descripción |
-|---|---|---|
-| `POST` | `/process-well` | Procesar archivo LAS → curvas sintéticas + VOI |
-| `POST` | `/inspect-well` | Inspeccionar curvas disponibles en un LAS |
-| `GET` | `/available-models/{basin}` | Listar modelos entrenados por cuenca |
-| `GET` | `/model-metrics/{basin}` | Métricas auditables (RMSE, R²) |
-| `GET` | `/download/{filename}` | Descargar archivo LAS procesado |
-
-#### Ejemplo con cURL
-
-```bash
-curl -X POST http://localhost:8001/process-well \
-  -F "file=@mi_pozo.las" \
-  -F "basin_name=cauca_patia" \
-  -F "target_curves=DT,RHOB"
-```
-
-### Paso 6 (Opcional): Levantar el Frontend Angular
-
-```bash
-cd logai-front
-npm install
-npm start
-```
-
-El frontend estará en **http://localhost:4200** y se conecta automáticamente al backend en el puerto 8001.
+- **Reconstrucción Virtual (Data Rescue):** Generación de curvas sintéticas (DT, RHOB, NPHI, etc.) usando aprendizaje automático de pozos vecinos.
+- **Sugerencia de Adquisición (VOI v2.0):** Reporte de decisión financiera con tres niveles de recomendación basados en **Precisión Operativa**:
+  - 💡 **AHORRO SEGURO**: La IA reconstruye con error menor a la tolerancia física. (¡Elimine la herramienta!)
+  - ⚠️ **RIESGO DE PRECISIÓN**: La IA correlaciona bien, pero el error es alto. (¡Adquiera el registro!)
+  - ⛔ **RIESGO GEOLÓGICO**: No hay correlación física. (¡Adquisición obligatoria!)
+- **Auditoría Transparente:** Métricas `metrics.json` públicas con RMSE y R² de validación cruzada.
+- **QC Geocientífico:** Pipeline automático de limpieza, conversión de unidades y detección de casing.
 
 ---
 
@@ -111,19 +20,20 @@ El frontend estará en **http://localhost:4200** y se conecta automáticamente a
 
 ```
 ┌─────────────────┐    HTTP/REST     ┌──────────────────────────────┐
-│  Angular Front  │ ◄──────────────► │   FastAPI Backend (api.py)   │
+│  Angular Front  │ ◄──────────────► │   GeoOptima API (api.py)     │
 │  (logai-front/) │    :8001/4200    │                              │
 └─────────────────┘                  │  ┌────────────────────────┐  │
-                                     │  │ inference_engine.py    │  │
+                                     │  │ GeoOptimaPredictor     │  │
+                                     │  │ (inference_engine.py)  │  │
                                      │  │  - Carga modelos       │  │
                                      │  │  - Predice curvas      │  │
-                                     │  │  - Calcula VOI         │  │
+                                     │  │  - VOI v2.0 (RMSE/Tol) │  │
                                      │  └────────────────────────┘  │
                                      │  ┌────────────────────────┐  │
                                      │  │ utils.py               │  │
                                      │  │  - QC Pipeline         │  │
-                                     │  │  - Alias Dict          │  │
-                                     │  │  - Physical Limits     │  │
+                                     │  │  - ALIAS_DICT          │  │
+                                     │  │  - TOLERANCE_DICT      │  │
                                      │  └────────────────────────┘  │
                                      └──────────────────────────────┘
                                                   │
@@ -133,42 +43,56 @@ El frontend estará en **http://localhost:4200** y se conecta automáticamente a
                                      └─────────────────────────┘
 ```
 
-## Pipeline QC (Quality Control)
+## Guía de Despliegue
 
-Cada archivo LAS pasa por 4 etapas automáticas antes de entrenamiento o inferencia:
+### Prerrequisitos
+- Docker Desktop
+- Node.js 18+ (Opcional, frontend)
 
-1. **Estandarización de mnemónicos**: 120+ alias → 14 curvas estándar (GR, ILD, NPHI, etc.)
-2. **Conversión de unidades**: Detección automática M→FT desde el header LAS
-3. **Detección de casing**: Zonas con CALI constante se marcan como NaN
-4. **Filtro de Pozos Llave**: Solo pozos con ≥4 curvas estándar y ≥100 muestras válidas
+### 1. Levantar Servicios
+```bash
+docker-compose up --build -d
+```
+Backend disponible en: **http://localhost:8001**
 
-## Diccionario de Curvas
+### 2. Entrenar Modelos
+```bash
+docker exec logai-backend python train_real.py
+```
+Este proceso genera los modelos y las métricas de precisión (`metrics.json`) necesarias para el VOI v2.0.
 
-| Mnemónico | Significado Petrofísico | Límites |
+### 3. Usar la API
+Documentación interactiva: **http://localhost:8001/docs**
+
+---
+
+## Predictiva Acotada: Estándares
+
+GeoOptima cumple con los requisitos de "Predictiva Acotada":
+
+1.  **Casos Aprobados:** Limitado a 14 curvas estándar definidas en `ALIAS_DICT`.
+2.  **Métricas Publicadas:** Endpoint `/model-metrics/{basin}` expone RMSE y R² de validación cruzada.
+3.  **Evidencia de Entrenamiento:** `metrics.json` incluye número de pozos y muestras usadas.
+4.  **Tolerancias Físicas:** Decisiones basadas en `TOLERANCE_DICT` (ej. RHOB +/- 0.08 g/cc).
+
+### Tolerancias Operativas (Ejemplo)
+
+| Curva | Tolerancia (+/- RMSE) | Unidad |
 |---|---|---|
-| GR | Litología (Arcillosidad) | 0–500 GAPI |
-| ILD | Fluidos (Saturación de Agua) | 0.1–20000 Ohm.m |
-| NPHI | Porosidad Total (Neutrón) | -0.05–0.6 v/v |
-| DT | Porosidad / Mecánica de Rocas | 30–250 us/ft |
-| RHOB | Porosidad Total (Densidad) | 1.0–3.5 g/cc |
-| SP | Permeabilidad / Litología | -200–200 mV |
-| CALI | Calidad de Hueco | 4–30 in |
-| PEF | Mineralogía | 0–20 b/e |
-| VSH | Volumen de Arcilla | — |
-| PHIE | Porosidad Efectiva | — |
-| SW | Saturación de Agua | — |
-| PERM | Permeabilidad | — |
+| **RHOB** | 0.08 | g/cc |
+| **DT** | 10.0 | us/ft |
+| **NPHI** | 0.045 | v/v |
+| **GR** | 15.0 | GAPI |
+| **CALI** | 0.5 | in |
 
-## Estructura del Proyecto
+---
 
-| Archivo | Función |
-|---|---|
-| `api.py` | API FastAPI — Endpoints REST |
-| `inference_engine.py` | Motor de predicción + VOI |
-| `model_factory.py` | Entrenamiento + métricas RMSE/R² |
-| `utils.py` | Pipeline QC + diccionario de alias |
-| `train_real.py` | Script de re-entrenamiento |
-| `Dockerfile` | Imagen Docker (Python 3.10-slim) |
-| `docker-compose.yml` | Orquestación con volúmenes |
-| `requirements.txt` | Dependencias Python |
-| `logai-front/` | Frontend Angular 17 |
+## Estructura de Archivos
+
+| Archivo | Clase Principal | Función |
+|---|---|---|
+| `api.py` | `FastAPI` | API REST para GeoOptima |
+| `inference_engine.py` | `GeoOptimaPredictor` | Motor de inferencia y lógica VOI v2.0 |
+| `model_factory.py` | `GeoOptimaTrainer` | Entrenamiento y cálculo de métricas |
+| `utils.py` | — | Diccionarios (Alias, Tolerancias) y funciones QC |
+| `train_real.py` | — | Script de orquestación de entrenamiento |

@@ -67,6 +67,23 @@ PHYSICAL_LIMITS = {
     'PEF': (0, 20)        # b/e
 }
 
+# Tolerancia de error aceptable para decisiones de "Reemplazo de Herramienta" (VOI v2.0)
+# Si RMSE < Tolerancia, el dato sintético es operacionalmente indistinguible del real.
+TOLERANCE_DICT = {
+    'GR': 15.0,      # GAPI
+    'ILD': 1.0,      # Ohm.m (Aprox lineal en rangos medios)
+    'NPHI': 0.045,   # v/v (4.5 p.u.)
+    'RHOB': 0.08,    # g/cc
+    'DT': 10.0,      # us/ft
+    'SP': 10.0,      # mV
+    'CALI': 0.5,     # in
+    'PEF': 0.5,      # b/e
+    'VSH': 0.10,     # decimal
+    'PHIE': 0.04,    # v/v
+    'SW': 0.10,      # decimal
+    'PERM': 10.0     # mD
+}
+
 unit_factors = {
     'M': 3.28084,  # Metros -> Pies
     'FT': 1.0

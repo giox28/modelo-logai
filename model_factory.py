@@ -16,7 +16,7 @@ from utils import standardize_dataframe, ALIAS_DICT, convert_depth_units, detect
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-class LogAITrainer:
+class GeoOptimaTrainer:
     def __init__(self, models_dir="models", output_dir="output"):
         """
         Inicializa el entrenador.

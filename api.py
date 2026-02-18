@@ -10,13 +10,13 @@ import lasio
 import numpy as np
 from utils import standardize_dataframe, ALIAS_DICT, get_std_name
 
-from inference_engine import LogAIPredictor
+from inference_engine import GeoOptimaPredictor
 
 # Configurar Logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("LogAI-API")
 
-app = FastAPI(title="LogAI-Opt API", version="1.0")
+app = FastAPI(title="GeoOptima API", version="2.0")
 
 # DEBUG STARTUP
 print("--------------------------------------------------")
@@ -41,7 +41,7 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 # Instancia global del predictor (carga lazy de modelos)
-predictor = LogAIPredictor()
+predictor = GeoOptimaPredictor()
 
 def subsample_curve(curve_data, max_points=1000):
     """Subsamplea la data para visualización rápida en frontend."""
@@ -149,6 +149,8 @@ async def inspect_well(file: UploadFile = File(...)):
 async def process_well(
     file: UploadFile = File(...),
     basin_name: str = Form(...),
+    analog_model: str = Form(None),
+    project_type: str = Form('oil'),
     target_curves: str = Form("DT,RHOB") # Comma separated list
 ):
     """
@@ -169,10 +171,11 @@ async def process_well(
         targets = [t.strip().upper() for t in target_curves.split(',')]
 
         # 3. Procesar con LogAIPredictor
-        # Nota: Esto es bloqueante. En prod usaríamos BackgroundTasks o Celery.
         las_out, voi_report, df_out = predictor.predict_and_explain(
             file_path, 
-            basin_name, 
+            basin_name,
+            basin_to_use=analog_model,
+            project_type=project_type,
             target_curves=targets
         )
 
@@ -219,4 +222,4 @@ async def download_file(filename: str):
 # Health check
 @app.get("/")
 def read_root():
-    return {"status": "ok", "service": "LogAI-Opt API", "version": "1.0", "docs": "/docs"}
+    return {"status": "ok", "service": "GeoOptima API", "version": "2.0", "docs": "/docs"}
