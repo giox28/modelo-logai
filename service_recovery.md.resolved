@@ -1,0 +1,64 @@
+# Guía de Recuperación y Reinicio del Servicio GeoOptima
+
+Este documento detalla los pasos para restablecer el servicio en caso de reinicio del servidor o fallo inesperado.
+
+## Opción A: Reinicio Automático (Recomendado - Docker)
+
+Si el sistema utiliza Docker, el servicio debería levantarse automáticamente. Si no, ejecute:
+
+1.  Abra **PowerShell** o **CMD**.
+2.  Navegue a la carpeta del proyecto:
+    ```powershell
+    cd c:\temp\geoportal\proyecto_logai
+    ```
+3.  Ejecute el comando de inicio:
+    ```powershell
+    docker-compose up -d
+    ```
+4.  Verifique que el servicio esté corriendo:
+    ```powershell
+    docker ps
+    ```
+    (Debe ver un contenedor llamado `logai-backend` o similar en estado [Up](file:///c:/temp/geoportal/proyecto_logai/logai-front/src/app/components/upload/upload.component.ts#7-276)).
+5.  Acceda al servicio en **[http://localhost:8001/](http://localhost:8001/)**.
+
+## Opción B: Reinicio Manual (Python)
+
+Si Docker no está disponible, puede correr el servicio manualmente:
+
+1.  Abra **PowerShell**.
+2.  Navegue al directorio:
+    ```powershell
+    cd c:\temp\geoportal\proyecto_logai
+    ```
+3.  Active el entorno virtual (si aplica) o asegúrese de tener las dependencias.
+4.  Ejecute el servidor API con `uvicorn`:
+    ```powershell
+    uvicorn api:app --host 0.0.0.0 --port 8000 --reload
+    ```
+5.  Mantenga la ventana abierta.
+6.  Acceda al servicio en **[http://localhost:8000/](http://localhost:8000/)**.
+
+## Iniciar Frontend (Interfaz Gráfica)
+
+Para levantar la interfaz de angular:
+
+1.  Abra una *nueva* ventana de **PowerShell**.
+2.  Navegue al proyecto.
+3.  Ejecute el script de inicio:
+    ```powershell
+    .\start_frontend.ps1
+    ```
+4.  Abra **[http://localhost:4200/](http://localhost:4200/)**.
+
+## Verificación de Salud
+
+## Verificación de Salud
+Dependiendo del método (Docker o Manual), pruebe:
+*   Docker: [http://localhost:8001/](http://localhost:8001/) o [http://localhost:8001/docs](http://localhost:8001/docs)
+*   Manual: [http://localhost:8000/](http://localhost:8000/) o [http://localhost:8000/docs](http://localhost:8000/docs)
+
+El servicio debe responder: `{"status": "ok", "service": "GeoOptima API", ...}`
+
+---
+**Soporte:** En caso de error persistente (`Port already in use`), verifique que no haya otra instancia corriendo o reinicie Docker Desktop.

@@ -9,8 +9,13 @@
     <div id="voiContainer">
         <div *ngFor="let item of voiReportItems" class="voi-section">
             <div style="margin-bottom:1rem;">
-                <h4 style="color:var(--text-main); margin:0; font-size:1.1rem;">
+                <h4
+                    style="color:var(--text-main); margin:0; font-size:1.1rem; display:flex; align-items:center; gap:0.5rem;">
                     Análisis de Reconstrucción: {{ item.target }}
+                    <span *ngIf="item.info.shap_enabled"
+                        style="background: #22c55e; color: black; font-size: 0.7rem; padding: 2px 6px; border-radius: 4px; font-weight: bold;">
+                        SHAP VI
+                    </span>
                 </h4>
 
                 <div class="suggestion-box" *ngIf="!item.info.error">

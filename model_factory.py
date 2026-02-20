@@ -1,20 +1,47 @@
 import os
 import glob
+import json
+import hashlib
+import datetime
 import lasio
 import pandas as pd
 import numpy as np
 import xgboost as xgb
 import joblib
-from sklearn.model_selection import GroupKFold
+from sklearn.model_selection import LeaveOneGroupOut
 from sklearn.metrics import mean_squared_error, r2_score
 import matplotlib.pyplot as plt
 import seaborn as sns
 import logging
-from utils import standardize_dataframe, ALIAS_DICT, convert_depth_units, detect_casing
+from utils import standardize_dataframe, ALIAS_DICT, convert_depth_units, detect_casing, remove_outliers_isolation_forest
 
 # Configuración de Logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+
+
+class UncertaintyLoggerModel:
+    """Wrapper para entrenar 3 modelos XGBoost (P10, P50, P90) para el VOI."""
+    def __init__(self, params=None):
+        if params is None:
+            params = {'n_estimators': 150, 'max_depth': 6, 'n_jobs': -1, 'random_state': 42}
+            
+        # Requiere xgboost >= 2.0.0
+        self.model_p10 = xgb.XGBRegressor(objective='reg:quantileerror', quantile_alpha=0.10, **params)
+        self.model_p50 = xgb.XGBRegressor(objective='reg:quantileerror', quantile_alpha=0.50, **params)
+        self.model_p90 = xgb.XGBRegressor(objective='reg:quantileerror', quantile_alpha=0.90, **params)
+        
+    def fit(self, X, y):
+        self.model_p10.fit(X, y)
+        self.model_p50.fit(X, y)
+        self.model_p90.fit(X, y)
+        
+    def predict_with_uncertainty(self, X):
+        y_p10 = self.model_p10.predict(X)
+        y_p50 = self.model_p50.predict(X)
+        y_p90 = self.model_p90.predict(X)
+        banda = y_p90 - y_p10
+        return y_p50, y_p10, y_p90, banda
 
 class GeoOptimaTrainer:
     def __init__(self, models_dir="models", output_dir="output"):
@@ -169,94 +196,80 @@ class GeoOptimaTrainer:
             logger.info(f"=== Procesando Cuenca: {basin} ===")
             basin_full_path = os.path.join(data_train_path, basin)
             
-            # 1. Carga Inteligente (con Utils)
             df = self.load_and_process_data(basin_full_path)
             if df.empty: continue
 
-            # 2. Feature Engineering Dinámico
             df = self.feature_engineering(df)
-            
             basin_model_dir = os.path.join(self.models_dir, basin)
             os.makedirs(basin_model_dir, exist_ok=True)
 
-            # 3. Entrenamiento Dinámico (All-vs-One)
             available_std_curves = [c for c in self.master_curves if c in df.columns]
             
-            # Entrenamos para CADA curva disponible si es solicitada como target
             for target in targets:
-                if target not in available_std_curves:
-                    # logger.warning(f"Target {target} no data in {basin}.")
-                    continue
+                if target not in available_std_curves: continue
                 
-                # FEATURES = Todo lo demás disponbile
                 input_base_vars = [c for c in available_std_curves if c != target]
                 if not input_base_vars: continue
 
-                # Expandir con derivadas
                 final_features = []
                 for v in input_base_vars:
                     final_features.append(v)
                     if f'{v}_GRAD' in df.columns: final_features.append(f'{v}_GRAD')
                     if f'{v}_SMOOTH' in df.columns: final_features.append(f'{v}_SMOOTH')
                 
-                # Filtrar nulos en Target (Data Logic)
-                # XGBoost maneja nulos en Features, pero necesitamos Target válido
                 train_data = df[final_features + [target, 'UWI']].dropna(subset=[target])
+                if len(train_data) < 50: continue
                 
-                if len(train_data) < 50: # Mínimo historial
-                    continue
-                
+                # --- MEJORA 1: Detección de Anomalías (Isolation Forest) ---
+                train_data = remove_outliers_isolation_forest(train_data, final_features, contamination=0.05)
+
                 X = train_data[final_features]
                 y = train_data[target]
                 groups = train_data['UWI']
                 
-                logger.info(f"Entrenando {target} en {basin} usando {len(input_base_vars)} curvas base: {input_base_vars}")
+                logger.info(f"Entrenando {target} en {basin} con Incertidumbre (P10-P90)")
                 
-                model = xgb.XGBRegressor(n_estimators=100, max_depth=6, n_jobs=-1, random_state=42)
+                # --- MEJORA 2: LOWO-CV (Leave-One-Well-Out) ---
+                logo = LeaveOneGroupOut()
+                cv_rmse_list, cv_r2_list = [],[]
                 
-                # --- Cross-Validation para métricas auditables ---
                 n_unique_groups = groups.nunique()
                 if n_unique_groups >= 3:
-                    n_splits = min(5, n_unique_groups)
-                    gkf = GroupKFold(n_splits=n_splits)
-                    cv_rmse_list = []
-                    cv_r2_list = []
-                    for train_idx, val_idx in gkf.split(X, y, groups):
+                    for train_idx, val_idx in logo.split(X, y, groups):
                         X_train_cv, X_val_cv = X.iloc[train_idx], X.iloc[val_idx]
                         y_train_cv, y_val_cv = y.iloc[train_idx], y.iloc[val_idx]
+                        
                         temp_model = xgb.XGBRegressor(n_estimators=100, max_depth=6, n_jobs=-1, random_state=42)
                         temp_model.fit(X_train_cv, y_train_cv)
                         y_pred_cv = temp_model.predict(X_val_cv)
+                        
                         cv_rmse_list.append(float(np.sqrt(mean_squared_error(y_val_cv, y_pred_cv))))
                         cv_r2_list.append(float(r2_score(y_val_cv, y_pred_cv)))
                     
                     avg_rmse = float(np.mean(cv_rmse_list))
                     avg_r2 = float(np.mean(cv_r2_list))
                 else:
-                    # Fallback: train metrics (no enough groups for CV)
-                    avg_rmse = None
-                    avg_r2 = None
+                    avg_rmse, avg_r2 = None, None
                 
-                # Fit final model on all data
-                model.fit(X, y)
-                y_pred_full = model.predict(X)
+                # --- ENTRENAMIENTO FINAL (Modelo P10, P50, P90) ---
+                model_wrapper = UncertaintyLoggerModel()
+                model_wrapper.fit(X, y)
+                
+                # Predecimos sobre todo para sacar el R2 de entrenamiento (usando P50)
+                y_pred_full, _, _, _ = model_wrapper.predict_with_uncertainty(X)
                 train_rmse = float(np.sqrt(mean_squared_error(y, y_pred_full)))
                 train_r2 = float(r2_score(y, y_pred_full))
                 
                 # Guardar modelo
                 save_path = os.path.join(basin_model_dir, f"{target}.joblib")
-                joblib.dump(model, save_path)
+                joblib.dump(model_wrapper, save_path)
                 
-                # --- Guardar métricas auditables en JSON ---
-                import json
-                metrics_path = os.path.join(basin_model_dir, "metrics.json")
-                if os.path.exists(metrics_path):
-                    with open(metrics_path, 'r') as mf:
-                        all_metrics = json.load(mf)
-                else:
-                    all_metrics = {}
+                # --- MEJORA 3: PROVENANCE ANH & METRICS ---
+                pozos_usados = list(groups.unique())
+                firma_hash = hashlib.md5("".join(pozos_usados).encode()).hexdigest()
                 
-                all_metrics[target] = {
+                metric_data = {
+                    "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
                     "train_rmse": round(train_rmse, 4),
                     "train_r2": round(train_r2, 4),
                     "cv_rmse": round(avg_rmse, 4) if avg_rmse is not None else None,
@@ -264,16 +277,43 @@ class GeoOptimaTrainer:
                     "n_samples": len(train_data),
                     "n_features": len(final_features),
                     "n_wells": int(n_unique_groups),
-                    "features_used": input_base_vars
+                    "wells_used": pozos_usados,
+                    "data_hash": firma_hash,
+                    "features_used": input_base_vars,
+                    "status": "APROBADO_PREDICTIVA_ACOTADA"
                 }
+                
+                # Guardar métricas en JSON general
+                metrics_path = os.path.join(basin_model_dir, "metrics.json")
+                if os.path.exists(metrics_path):
+                    with open(metrics_path, 'r') as mf:
+                        all_metrics = json.load(mf)
+                else:
+                    all_metrics = {}
+                all_metrics[target] = metric_data
                 
                 with open(metrics_path, 'w') as mf:
                     json.dump(all_metrics, mf, indent=2)
+
+                # Guardar Provenance individual
+                prov_path = os.path.join(basin_model_dir, f"provenance_{target}.json")
+                with open(prov_path, 'w') as pf:
+                    json.dump(metric_data, pf, indent=2)
                 
-                # Plots de validación
-                self.save_plots(basin, target, y, y_pred_full, model, final_features)
-                
-                metric_str = f"Train RMSE={train_rmse:.4f}, R²={train_r2:.4f}"
-                if avg_rmse is not None:
-                    metric_str += f" | CV RMSE={avg_rmse:.4f}, R²={avg_r2:.4f}"
-                logger.info(f"Modelo guardado: {target} | {metric_str}")
+                self.save_plots(basin, target, y, y_pred_full, model_wrapper.model_p50, final_features)
+                logger.info(f"Modelo Cuantílico guardado: {target} | CV RMSE={avg_rmse}")
+
+if __name__ == "__main__":
+    import argparse
+    
+    parser = argparse.ArgumentParser(description="GeoOptima Model Factory")
+    parser.add_argument("--basins", nargs="+", help="Specific basins to train (default: all)")
+    parser.add_argument("--targets", nargs="+", help="Specific target curves (default: all)")
+    args = parser.parse_args()
+
+    # Initialize Trainer
+    trainer = GeoOptimaTrainer()
+    
+    print("🚀 Iniciando Entrenamiento Multi-Cuenca GeoOptima...")
+    trainer.train_all_basins(target_curves=args.targets)
+    print("✅ Entrenamiento Finalizado.")

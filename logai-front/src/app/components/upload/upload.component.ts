@@ -14,7 +14,8 @@ import { PlotlyService } from '../../services/plotly.service';
 export class UploadComponent implements OnInit {
   @Output() processingComplete = new EventEmitter<any>();
 
-  selectedBasin: string = 'guajira';
+  selectedBasin: string = '';
+  basins: string[] = [];
   file: File | null = null;
   fileName: string = '';
   isDragOver: boolean = false;
@@ -29,7 +30,7 @@ export class UploadComponent implements OnInit {
   projectTypes = [
     { value: 'oil', label: 'Oil & Gas (Tradicional)' },
     { value: 'geothermal', label: 'Energía Geotérmica' },
-    { value: 'hydrogen', label: 'Almacenamiento H2' },
+    { value: 'hydrogen', label: 'Hidrógeno Natural / Blanco' },
     { value: 'ccus', label: 'Captura de Carbono (CCUS)' }
   ];
 
@@ -44,8 +45,22 @@ export class UploadComponent implements OnInit {
   ) { }
 
   ngOnInit() {
-    // Pre-fetch models to ensure connectivity
-    this.fetchModels();
+    // 1. Fetch available basins first
+    this.apiService.getAvailableBasins().subscribe({
+      next: (data) => {
+        this.basins = data.basins || [];
+        // Set default if exists
+        if (this.basins.length > 0) {
+          this.selectedBasin = this.basins[0];
+        }
+        // Then fetch models
+        this.fetchModels();
+      },
+      error: (err) => {
+        console.error('Error fetching basins', err);
+        // Fallback or empty
+      }
+    });
   }
 
   onDragOver(event: DragEvent) {

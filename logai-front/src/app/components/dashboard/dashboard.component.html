@@ -1,4 +1,10 @@
-<div class="container">
+<div class="container" style="position: relative;">
+    <button (click)="logout()"
+        style="position: absolute; top: 1rem; right: 1rem; background: transparent; color: var(--text-muted); border: 1px solid var(--text-muted); padding: 5px 15px; border-radius: 4px; cursor: pointer; transition: 0.2s;"
+        onmouseover="this.style.color='white'; this.style.borderColor='white'"
+        onmouseout="this.style.color='var(--text-muted)'; this.style.borderColor='var(--text-muted)'">
+        Cerrar Sesión
+    </button>
     <app-upload (processingComplete)="onProcessingComplete($event)"></app-upload>
 
     <div id="results-section" *ngIf="resultData">

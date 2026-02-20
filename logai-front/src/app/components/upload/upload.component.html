@@ -18,9 +18,8 @@
         <div class="form-group">
             <label>1. Seleccionar Cuenca</label>
             <select [(ngModel)]="selectedBasin" name="basin" (change)="onBasinChange()">
-                <option value="guajira">Cuenca Guajira</option>
-                <option value="llanos">Cuenca Llanos</option>
-                <option value="cauca_patia">Cuenca Cauca-Patía</option>
+                <option *ngIf="basins.length === 0" value="" disabled>Cargando cuencas...</option>
+                <option *ngFor="let basin of basins" [value]="basin">{{ basin | titlecase }}</option>
             </select>
         </div>
 
@@ -46,9 +45,8 @@
                     <select [(ngModel)]="analogModel" name="analogModel" (change)="onAnalogModelChange()"
                         style="width:100%; padding:0.5rem; border-radius:4px; border:1px solid #444; background:#222; color:white;">
                         <option value="">-- Ninguno (Usar Modelo Local) --</option>
-                        <option value="llanos">Inteligencia Cuenca Llanos</option>
-                        <option value="guajira">Inteligencia Cuenca Guajira</option>
-                        <option value="cauca_patia">Inteligencia Cuenca Cauca-Patía</option>
+                        <option *ngFor="let basin of basins" [value]="basin">Inteligencia {{ basin | titlecase }}
+                        </option>
                     </select>
                     <small style="display:block; color:#888; font-size:0.75rem; margin-top:4px;">
                         Úselo para Cuencas Frontera donde no existen modelos propios.

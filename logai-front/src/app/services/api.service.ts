@@ -6,9 +6,13 @@ import { Observable } from 'rxjs';
   providedIn: 'root'
 })
 export class ApiService {
-  private baseUrl = 'http://localhost:8001'; // Changed to 8001 to avoid port conflict
+  private baseUrl = 'http://localhost:8003'; // Changed to 8003 to avoid port conflict
 
   constructor(private http: HttpClient) { }
+
+  getAvailableBasins(): Observable<any> {
+    return this.http.get(`${this.baseUrl}/available-basins`);
+  }
 
   getAvailableModels(basin: string): Observable<any> {
     return this.http.get(`${this.baseUrl}/available-models/${basin}`);

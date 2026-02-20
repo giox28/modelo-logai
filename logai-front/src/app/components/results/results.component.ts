@@ -62,7 +62,16 @@ export class ResultsComponent implements OnChanges {
   }
 
   renderResultPlot() {
-    if (!this.data || !this.data.depth_data || !this.data.synthetic_data) return;
+    console.log('ResultsComponent: renderResultPlot called');
+    console.log('ResultsComponent: data:', this.data);
+
+    if (!this.data || !this.data.depth_data || !this.data.synthetic_data) {
+      console.error('ResultsComponent: Missing data for plot');
+      return;
+    }
+
+    console.log('ResultsComponent: synthetic_data keys:', Object.keys(this.data.synthetic_data));
+
 
     const traces: any[] = [];
     const layout: any = {
@@ -105,17 +114,54 @@ export class ResultsComponent implements OnChanges {
         showgrid: true,
         gridcolor: 'rgba(255,255,255,0.1)',
         zeroline: false,
-        showline: true, // Add border to track
-        mirror: true   // Add border to track
+        showline: true,
+        mirror: true
       };
 
+      // Handle v2.0 Data Structure (Object with P10/P50/P90)
+      const dataObj = curveData as any;
+      const xP50 = dataObj.P50_SYN;
+      const xP10 = dataObj.P10;
+      const xP90 = dataObj.P90;
+
+      // 1. P10 Trace (Lower Bound) - Invisible
+      if (xP10 && xP10.length > 0) {
+        traces.push({
+          y: depth,
+          x: xP10,
+          type: 'scatter',
+          mode: 'lines',
+          line: { width: 0 },
+          xaxis: axisId,
+          showlegend: false,
+          hoverinfo: 'skip'
+        });
+      }
+
+      // 2. P90 Trace (Upper Bound) - Filled to P10
+      if (xP90 && xP90.length > 0) {
+        traces.push({
+          y: depth,
+          x: xP90,
+          type: 'scatter',
+          mode: 'lines',
+          line: { width: 0 },
+          xaxis: axisId,
+          fill: 'tonextx',
+          fillcolor: 'rgba(34, 197, 94, 0.2)', // Green tint
+          showlegend: false,
+          hoverinfo: 'skip'
+        });
+      }
+
+      // 3. Main P50 Trace
       traces.push({
         y: depth,
-        x: curveData,
+        x: xP50,
         name: `${target}`,
         type: 'scatter',
         mode: 'lines',
-        line: { width: 1.5 },
+        line: { width: 1.5, color: '#22c55e' },
         xaxis: axisId
       });
     });

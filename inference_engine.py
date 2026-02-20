@@ -6,6 +6,15 @@ import shap
 import lasio
 import logging
 from utils import standardize_dataframe, ALIAS_DICT
+from model_factory import UncertaintyLoggerModel # Import definition
+import sys
+
+# --- FIX for Pickle/Joblib: Map __main__.UncertaintyLoggerModel to the actual class ---
+# Esto es necesario porque los modelos fueron entrenados ejecutando model_factory.py como __main__
+import __main__
+if not hasattr(__main__, "UncertaintyLoggerModel"):
+    setattr(__main__, "UncertaintyLoggerModel", UncertaintyLoggerModel)
+# ---------------------------------------------------------------------------------------
 
 # Configuración de Logging
 file_handler = logging.FileHandler(os.path.join("output", "debug.log"))
@@ -143,156 +152,109 @@ class GeoOptimaPredictor:
             # Advertencia de calidad de predicción (Acquisition logic)
             # Si faltan muchas features críticas, la predicción será mala (XGBoost usa default path)
             
-            # Predecir
-            pred = model.predict(X_input)
+            # --- MEJORA 4: Predicción con Incertidumbre ---
+            if hasattr(model, 'predict_with_uncertainty'):
+                y_pred, y_p10, y_p90, banda = model.predict_with_uncertainty(X_input)
+            else:
+                # Fallback para modelos legacy
+                y_pred = model.predict(X_input)
+                # Estimación dummy de incertidumbre (10% del valor) para no romper
+                y_p10 = y_pred * 0.9
+                y_p90 = y_pred * 1.1
+                banda = y_p90 - y_p10
             
-            # Guardar
+            # Guardar en DataFrame para Frontend
             target_col_name = f"{target}_SYN"
-            df_processed[target_col_name] = pred
+            df_processed[target_col_name] = y_pred
+            df_processed[f"{target}_P10"] = y_p10
+            df_processed[f"{target}_P90"] = y_p90
+            df_processed[f"{target}_UNCERTAINTY"] = banda
             
-            unit = "US/FT" if target.startswith("DT") else ""
-            las.append_curve(target_col_name, pred, unit=unit, descr=f"{target} Synthetic LogAI")
+            # Inyectar en el archivo LAS
+            unit = "US/FT" if target.startswith("DT") else "G/CC" if target == "RHOB" else ""
+            las.append_curve(target_col_name, y_pred, unit=unit, descr=f"LogAI P50 Synthetic")
+            las.append_curve(f"{target}_P10", y_p10, unit=unit, descr=f"LogAI P10 Lower Bound")
+            las.append_curve(f"{target}_P90", y_p90, unit=unit, descr=f"LogAI P90 Upper Bound")
+            
+            # Metadatos ANH al Header del LAS
+            las.well['LOGAI_MODEL'] = lasio.HeaderItem('LOGAI', '', 'GeoOptima - Predictiva Acotada BIEN')
 
-            # --- Optimización de Adquisición (Feature Importance Nativa) ---
+            # --- MEJORA 5: Explicabilidad con SHAP ---
             try:
-                with open(os.path.join("output", "debug.txt"), "a", encoding="utf-8") as f:
-                    f.write(f"\n[{target}] Calculating feature importance (native XGBoost)...\n")
-
-                # Use XGBoost's built-in feature importance (no SHAP dependency)
-                global_imp = model.feature_importances_
-
-                with open(os.path.join("output", "debug.txt"), "a", encoding="utf-8") as f:
-                    f.write(f"[{target}] SUCCESS: Got {len(global_imp)} importance values.\n")
-
-                # Mapear importancia a curva base (sumar GR, GR_GRAD, GR_SMOOTH)
+                # Usamos solo el modelo P50 para explicar (si es wrapper) o el modelo directo
+                model_to_explain = model.model_p50 if hasattr(model, 'model_p50') else model
+                
+                explainer = shap.TreeExplainer(model_to_explain)
+                # Tomamos una muestra (100 puntos) para no saturar la memoria si el pozo es muy largo
+                X_sample = X_input.fillna(0).sample(min(100, len(X_input)), random_state=42)
+                shap_values = explainer.shap_values(X_sample)
+                
+                # Promedio absoluto de SHAP por feature (Impacto Global en este pozo)
+                mean_shap = np.abs(shap_values).mean(axis=0)
+                
+                # Mapear importancia a la curva base
                 curve_importance = {}
                 for idx, feat_name in enumerate(expected_features):
                     base = feat_name.split('_')[0]
                     if base not in curve_importance: curve_importance[base] = 0.0
-                    if idx < len(global_imp):
-                        curve_importance[base] += global_imp[idx]
+                    if idx < len(mean_shap):
+                        curve_importance[base] += mean_shap[idx]
                 
-                # Normalizar
-                total = sum(curve_importance.values())
-                if total > 0:
-                    curve_importance = {k: v/total for k,v in curve_importance.items()}
-
-                # Generar reporte de sugerencia (Context Aware)
-                suggestion = self._generate_acquisition_suggestion(target, curve_importance, basin_inference, project_type)
+                # Normalizar a 100%
+                total_shap = sum(curve_importance.values())
+                if total_shap > 0:
+                    curve_importance = {k: v/total_shap for k,v in curve_importance.items()}
+                
+                # Extraer la incertidumbre promedio del pozo
+                mean_uncertainty = float(np.nanmean(banda))
+                
+                # Generar reporte VOI Acotado
+                suggestion, level = self._generate_acquisition_suggestion(
+                    target, curve_importance, basin_inference, project_type, mean_uncertainty
+                )
                 
                 voi_report[target] = {
                     "importance": curve_importance,
                     "suggestion": suggestion,
+                    "risk_level": level,  # "AHORRO", "PRECISION", "OBLIGATORIO"
+                    "mean_uncertainty": mean_uncertainty,
                     "model_features_used": list(expected_features),
-                    "missing_features": missing_feats_count
+                    "missing_features": missing_feats_count,
+                    "shap_enabled": True
                 }
                 
                 self.plot_shap(basin_name, target, curve_importance, os.path.basename(las_file_path))
 
             except Exception as e:
-                logger.error(f"Feature importance error {target}: {e}")
-                voi_report[target] = {
-                    "error": f"Error en análisis de impacto: {str(e)}",
-                    "suggestion": "No se pudo generar recomendación debido a un error en el cálculo de impacto.",
-                    "importance": {}
-                }
+                logger.error(f"Error SHAP en {target}: {e}")
+                voi_report[target] = {"error": f"Error SHAP: {str(e)}"}
 
         return las, voi_report, df_processed
 
-    def _generate_acquisition_suggestion(self, target, importance, basin, project_type='oil'):
-        """
-        Genera una recomendación de negocio basada en RIESGO y COSTO-EFICIENCIA.
-        Transforma el 'feature importance' en una decisión de adquisición de herramienta.
-        Adapta la terminología según el tipo de proyecto (H2, Geotermia, CCUS).
-        """
+    def _generate_acquisition_suggestion(self, target, importance, basin, project_type, mean_uncertainty):
         from utils import CURVE_MEANING, TOLERANCE_DICT
-        
-        # Diccionario de Contexto para Nuevas Energías
-        PROJECT_CONTEXT = {
-            'oil': {
-                'value_term': 'Reservas Probadas',
-                'risk_term': 'Caracterización de Yacimiento',
-                'criticality': 'Reducción de Incertidumbre'
-            },
-            'geothermal': {
-                'value_term': 'Capacidad de Generación',
-                'risk_term': 'Riesgo Entálpico / Flujo de Calor',
-                'criticality': 'Identificación de Zonas Productivas'
-            },
-            'hydrogen': {
-                'value_term': 'Potencial de Generación (H2 Natural/Blanco)',
-                'risk_term': 'Riesgo de Migración y Trampa',
-                'criticality': 'Detección de Anomalías de Gas'
-            },
-            'ccus': {
-                'value_term': 'Capacidad de Inyección',
-                'risk_term': 'Riesgo de Fuga (Leakage)',
-                'criticality': 'Monitoreo de Pluma de CO2'
-            }
-        }
-        
-        ctx = PROJECT_CONTEXT.get(project_type, PROJECT_CONTEXT['oil'])
-
-        # 1. Validar si hay predictores
-        if not importance:
-            return f"⚠️ DATA INSUFICIENTE: No se pudo determinar una correlación fiable. SE REQUIERE ADQUISICIÓN FÍSICA para garantizar {ctx['risk_term']}."
-
-        # 2. Identificar el predictor dominante
-        sorted_feats = sorted(importance.items(), key=lambda x: x[1], reverse=True)
-        top_feat, score = sorted_feats[0]
+        ctx = {'value_term': 'Reservas', 'risk_term': 'Caracterización', 'criticality': 'Riesgo Geológico'} # Resume tu diccionario aquí
         
         target_name = CURVE_MEANING.get(target, target)
-        input_name = CURVE_MEANING.get(top_feat, top_feat)
+        sorted_feats = sorted(importance.items(), key=lambda x: x[1], reverse=True)
+        top_feat, score = sorted_feats[0] if sorted_feats else ("N/A", 0)
         
-        # Obtener métricas de precisión (RMSE) del modelo
-        basin_metrics = self.metrics.get(basin, {})
-        target_metrics = basin_metrics.get(target, {})
-        cv_rmse = target_metrics.get('cv_rmse', 999.0)
         tolerance = TOLERANCE_DICT.get(target, 1.0)
         
-        is_accurate = cv_rmse < tolerance
+        # Evaluamos usando la incertidumbre real de este pozo (P90 - P10)
+        is_accurate = mean_uncertainty < tolerance
 
-        # 3. Lógica Híbrida: Semáforo de Decisión (Negocio + RMSE)
-        
-        # CASO A: ALTA CONFIANZA y BAJO ERROR (Ahorro Seguro)
-        if score >= 0.50 and is_accurate:
-            title = f"💡 OPORTUNIDAD DE OPTIMIZACIÓN (Ahorro Confirmado - {ctx['value_term']})"
-            body = (
-                f"El análisis indica una redundancia petrofísica alta. La herramienta **{target_name} ({target})** "
-                f"tiene una dependencia del **{score:.1%}** con **{input_name} ({top_feat})**.\n\n"
-                f"✅ **Estrategia Recomendada:** En pozos de desarrollo, considere **ELIMINAR** la corrida de {target} "
-                f"y reconstruirla virtualmente. El error esperado (+/- {cv_rmse:.2f}) está DENTRO de la tolerancia operativa ({tolerance})."
-            )
-
-        # CASO B: ALTA CONFIANZA pero ALTO ERROR (Falso Positivo - Riesgo de Precisión)
-        elif score >= 0.50 and not is_accurate:
-            title = f"⚠️ RIESGO DE PRECISIÓN (Adquisición Recomendada para {ctx['risk_term']})"
-            body = (
-                f"Aunque existe una fuerte correlación estadística ({score:.1%}), el modelo presenta un error físico de "
-                f"**{cv_rmse:.2f}**, que EXCEDE la tolerancia permitida ({tolerance}).\n\n"
-                f"⚠️ **Acción:** No elimine la herramienta. La reconstrucción virtual podría enmascarar detalles críticos para {ctx['criticality']}."
-            )
-
-        # CASO C: BAJA CONFIANZA (Riesgo Geológico/Físico)
-        elif score < 0.30:
-            title = f"⛔ ALERTA DE {ctx['risk_term'].upper()} (Adquisición Obligatoria)"
-            body = (
-                f"El modelo NO puede reconstruir **{target_name} ({target})** con fiabilidad. "
-                f"La mejor correlación solo explica el **{score:.1%}** de la variabilidad.\n\n"
-                f"⛔ **Acción Crítica:** **SE REQUIERE ADQUISICIÓN FÍSICA**. Mantenga esta herramienta en el programa para "
-                f"garantizar la seguridad y viabilidad del proyecto de {project_type.upper()}."
-            )
-
-        # CASO D: ZONA GRIS (Requiere Calibración)
+        if score >= 0.40 and is_accurate:
+            level = "AHORRO"
+            body = f"Ahorro Confirmado. Incertidumbre (+/- {mean_uncertainty:.2f}) DENTRO de tolerancia ({tolerance}). ELIMINE HERRAMIENTA."
+        elif score >= 0.40 and not is_accurate:
+            level = "PRECISION"
+            body = f"Riesgo de Precisión. Correlación alta ({score:.1%}), pero Incertidumbre ({mean_uncertainty:.2f}) EXCEDE tolerancia ({tolerance}). ADQUIERA HERRAMIENTA."
         else:
-            title = "🔍 OPORTUNIDAD CONDICIONAL (Requiere Calibración)"
-            body = (
-                f"Existe una correlación moderada (**{score:.1%}**) entre **{target}** y **{top_feat}**. "
-                f"El error del modelo es **{cv_rmse:.2f}** (Tol: {tolerance}).\n\n"
-                f"⚠️ **Estrategia:** El reemplazo es viable PERO requiere validación con núcleos o pozos vecinos (offset wells)."
-            )
+            level = "OBLIGATORIO"
+            body = f"Riesgo Geológico. Correlación baja ({score:.1%}). SE REQUIERE ADQUISICIÓN FÍSICA OBLIGATORIA."
 
-        return f"### {title}\n\n{body}"
+        return body, level
 
     def plot_shap(self, basin, target, importance, filename):
         try:

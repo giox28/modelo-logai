@@ -1,5 +1,7 @@
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Depends, status
 from fastapi.responses import FileResponse, JSONResponse
+from fastapi.security import OAuth2PasswordRequestForm
+from security import verify_password, create_access_token, create_refresh_token, get_current_user, ADMIN_USER, ADMIN_PASSWORD_HASH
 import shutil
 import os
 import uuid
@@ -74,8 +76,34 @@ def serialize_voi(report):
         return int(report)
     return report
 
+@app.post("/token")
+async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends()):
+    if form_data.username != ADMIN_USER or not verify_password(form_data.password, ADMIN_PASSWORD_HASH):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect username or password",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    access_token = create_access_token(data={"sub": ADMIN_USER})
+    refresh_token = create_refresh_token(data={"sub": ADMIN_USER})
+    return {"access_token": access_token, "refresh_token": refresh_token, "token_type": "bearer"}
+
+
+@app.get("/available-basins")
+def get_available_basins(current_user: str = Depends(get_current_user)):
+    """Devuelve la lista de cuencas que tienen modelos entrenados (existen en carpeta models/)."""
+    if not os.path.exists("models"):
+        return {"basins": []}
+    
+    # Listar subdirectorios en models/
+    basins = [d for d in os.listdir("models") if os.path.isdir(os.path.join("models", d))]
+    # Opcional: Filtrar carpetas vacías
+    basins = [b for b in basins if len(os.listdir(os.path.join("models", b))) > 0]
+    
+    return {"basins": sorted(basins)}
+
 @app.get("/available-models/{basin}")
-def get_available_models(basin: str):
+def get_available_models(basin: str, current_user: str = Depends(get_current_user)):
     """Devuelve la lista de modelos entrenados disponibles para una cuenca."""
     models_dir = os.path.join("models", basin)
     if not os.path.exists(models_dir):
@@ -88,7 +116,7 @@ def get_available_models(basin: str):
     return {"models": models}
 
 @app.get("/model-metrics/{basin}")
-def get_model_metrics(basin: str):
+def get_model_metrics(basin: str, current_user: str = Depends(get_current_user)):
     """Devuelve métricas auditables (RMSE, R²) de los modelos entrenados para una cuenca."""
     import json
     metrics_path = os.path.join("models", basin, "metrics.json")
@@ -101,7 +129,7 @@ def get_model_metrics(basin: str):
     return {"basin": basin, "metrics": metrics}
 
 @app.post("/inspect-well")
-async def inspect_well(file: UploadFile = File(...)):
+async def inspect_well(file: UploadFile = File(...), current_user: str = Depends(get_current_user)):
     """Devuelve las curvas disponibles y data sampleada para preview."""
     try:
         content = await file.read()
@@ -151,7 +179,8 @@ async def process_well(
     basin_name: str = Form(...),
     analog_model: str = Form(None),
     project_type: str = Form('oil'),
-    target_curves: str = Form("DT,RHOB") # Comma separated list
+    target_curves: str = Form("DT,RHOB"), # Comma separated list
+    current_user: str = Depends(get_current_user)
 ):
     """
     Recibe un archivo LAS y una cuenca. Devuelve JSON con VOI y link de descarga.
@@ -192,6 +221,7 @@ async def process_well(
         las_out.write(output_path, version=2.0)
         
         # 5. Respuesta
+        # 5. Respuesta
         return JSONResponse(content={
             "status": "success",
             "file_id": file_id,
@@ -200,7 +230,11 @@ async def process_well(
             "download_url": f"/download/{output_filename}",
             "voi_report": serialize_voi(voi_report),
             "synthetic_data": {
-               target: subsample_curve(df_out[f"{target}_SYN"]) 
+               target: {
+                   "P50_SYN": subsample_curve(df_out[f"{target}_SYN"]),
+                   "P10": subsample_curve(df_out[f"{target}_P10"]) if f"{target}_P10" in df_out.columns else [],
+                   "P90": subsample_curve(df_out[f"{target}_P90"]) if f"{target}_P90" in df_out.columns else []
+               }
                for target in targets 
                if f"{target}_SYN" in df_out.columns
             },
@@ -212,7 +246,7 @@ async def process_well(
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/download/{filename}")
-async def download_file(filename: str):
+async def download_file(filename: str, current_user: str = Depends(get_current_user)):
     file_path = os.path.join(OUTPUT_DIR, filename)
     if os.path.exists(file_path):
         return FileResponse(file_path, filename=filename, media_type='application/octet-stream')

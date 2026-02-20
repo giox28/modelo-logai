@@ -1,6 +1,9 @@
 import numpy as np
 import pandas as pd
 import logging
+from sklearn.ensemble import IsolationForest
+import pandas as pd
+import logging
 
 logger = logging.getLogger(__name__)
 
@@ -18,23 +21,23 @@ ALIAS_DICT = {
     # Porosidad Neutrón
     'NPHI': ['NPHI', 'NEUT', 'TNPH', 'NPOR', 'CNPOR', 'NPHIS', 'NPHI.V/V', 'NPSS', 'NPHI_LS'],
     # Sónico (Delta T)
-    'DT': ['DT', 'DTC', 'DTCO', 'DT4P', 'AC', 'SONIC', 'DT24', 'DTC_CO', 'DT.US/F', 'DT.US/FT', 'DTT', 'DTCOMP'],
+    'DT': ['DT', 'DTC', 'DTCO', 'DT4P', 'AC', 'SONIC', 'DT24', 'DTC_CO', 'DT.US/F', 'DT.US/FT', 'DTT', 'DTCOMP', 'DT_EDIT', 'DT_COMP', 'DT_FINAL'],
     # Densidad Bulk
-    'RHOB': ['RHOB', 'DEN', 'RHOZ', 'ZDEN', 'DENS', 'BDEN', 'RHOB.GM/C', 'RHOB.G/CC', 'DEN_B'],
+    'RHOB': ['RHOB', 'DEN', 'RHOZ', 'ZDEN', 'DENS', 'BDEN', 'RHOB.GM/C', 'RHOB.G/CC', 'DEN_B', 'RHOB_EDIT', 'RHOB_FINAL'],
     # Potencial Espontáneo
     'SP': ['SP', 'SPC', 'SP_EDC', 'SPBL', 'SPF', 'SP.MV', 'SS'],
     # Caliper
-    'CALI': ['CALI', 'CAL', 'C13', 'DCAL', 'HCAL', 'CALIPER', 'CALI.IN', 'CAL.IN', 'CALS'],
+    'CALI': ['CALI', 'CAL', 'C13', 'DCAL', 'HCAL', 'CALIPER', 'CALI.IN', 'CAL.IN', 'CALS', 'CALI_EDIT'],
     # Volumen de Arcilla
     'VSH': ['VSH', 'VSH_GR', 'VSHALE', 'VSH_DEC', 'VSH.DEC', 'VCL', 'VCLAY'],
     # Porosidad Efectiva
-    'PHIE': ['PHIE', 'PHI_E', 'POR_EFF', 'PHIE_D', 'EPOR', 'PHIE.V/V', 'PIGE'],
+    'PHIE': ['PHIE', 'PHI_E', 'POR_EFF', 'PHIE_D', 'EPOR', 'PHIE.V/V', 'PIGE', 'PHIE_ND', 'PHIE_S'],
     # Saturación de Agua
-    'SW': ['SW', 'SW_ARCHIE', 'SATURATION', 'SWE', 'SXZ'],
+    'SW': ['SW', 'SW_ARCHIE', 'SATURATION', 'SWE', 'SXZ', 'SWE_SIM', 'SW_SIM'],
     # Factor Fotoeléctrico
     'PEF': ['PEF', 'PE', 'PEFZ', 'PE.B/E'],
     # Permeabilidad
-    'PERM': ['PERM', 'PERM_TIXIER', 'PERM2', 'KLOGH', 'KINT'],
+    'PERM': ['PERM', 'PERM_TIXIER', 'PERM2', 'KLOGH', 'KINT', 'PERM_SIM'],
     # Resistividad Zona Lavada (Flushed)
     'RXO': ['RXO', 'RX0', 'MSFL', 'MRLC1'] 
 }
@@ -249,3 +252,26 @@ def standardize_dataframe(df):
             df[col] = apply_physical_limits(df, col, PHYSICAL_LIMITS[col])
             
     return df
+
+def remove_outliers_isolation_forest(df, features, contamination=0.05):
+    """
+    Filtra anomalías multivariables usando Isolation Forest.
+    Se utiliza solo durante el entrenamiento.
+    """
+    if df.empty or len(df) < 50:
+        return df
+        
+    logger.info("QC_OUTLIERS: Ejecutando Isolation Forest...")
+    
+    # IsolationForest no soporta NaNs, creamos una copia imputada temporalmente
+    df_temp = df[features].copy() # Solo usar features relevantes
+    df_temp = df_temp.fillna(df_temp.median())
+    
+    iso_forest = IsolationForest(n_estimators=100, contamination=contamination, random_state=42)
+    outlier_labels = iso_forest.fit_predict(df_temp)
+    
+    # 1 = normal, -1 = outlier
+    mask = (outlier_labels == 1)
+    
+    logger.info(f"QC_OUTLIERS: Removidas {len(df) - mask.sum()} muestras anómalas.")
+    return df[mask].copy()
